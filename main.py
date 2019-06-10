@@ -109,5 +109,8 @@ y_pred = classifier.predict(X_test)
 results = list(zip(test.PassengerId, y_pred))
 
 # %%
-np.savetxt("data/test_pred.csv", results, delimiter=",",
+np.savetxt("data/test_pred_opt.csv", results, delimiter=",",
            header='PassengerId,Survived', fmt='%i')
+
+
+#%%
