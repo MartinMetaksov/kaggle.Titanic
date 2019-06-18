@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import LabelEncoder
-from sklearn.preprocessing import OneHotEncoder
+from category_encoders.one_hot import OneHotEncoder
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import cross_val_score
@@ -14,6 +14,8 @@ from sklearn.metrics import confusion_matrix
 from sklearn.metrics import accuracy_score
 from sklearn.svm import SVC
 from xgboost import XGBClassifier
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
 
 
 # %%
@@ -69,28 +71,55 @@ def preprocess_data(X):
 # %%
 train = pd.read_csv('data/train.csv')
 test = pd.read_csv('data/test.csv')
-X_train, y_train = preprocess_data(train)
-X_test, _ = preprocess_data(test)
+# X_train, y_train = preprocess_data(train)
+# X_test, _ = preprocess_data(test)
+
+# %%
+median_transformer = SimpleImputer(strategy='median')
+
+embarked_transformer = Pipeline(steps=[
+    ('imputer', SimpleImputer(strategy='constant', fill_value='C')),
+    ('onehot', OneHotEncoder(drop_invariant=True))
+])
+
+ohe = OneHotEncoder(drop_invariant=True)
+r = ohe.fit_transform(train.Sex)
+
+preprocessor = ColumnTransformer(transformers=[
+    ('Sex', OneHotEncoder(), ['Sex']),
+    ('Age', median_transformer, ['Age']),
+    ('Embarked', embarked_transformer, ['Embarked']),
+
+])
+
+preprocessing_result = preprocessor.fit_transform(train)
+preprocessing_result
+r
+
+
+# %%
+
 
 # %%
 # grid search
 parameters = [
-    # {
-    #     'C': [1, 10, 100, 1000],
-    #     'kernel': ['rbf'],
-    #     'gamma': [0.5, 0.1, 0.01, 0.001]
-    # },
     {
-        'min_child_weight': [1, 5, 10],
-        'gamma': [5, 2, 1.5, 1, 0.5, 0.1, 0.01, 0.001],
-        'subsample': [0.6, 0.8, 1.0],
-        'colsample_bytree': [0.6, 0.8, 1.0],
-        'n_estimators': [10, 50, 100, 300],
-        'max_depth': [3, 4, 5],
-        'booster': ['gbtree', 'gblinear', 'dart'],
-    }]
+        'C': [1, 10, 100, 1000],
+        'kernel': ['rbf'],
+        'gamma': [0.5, 0.1, 0.01, 0.001]
+    },
+    # {
+    #     'min_child_weight': [1, 5, 10],
+    #     'gamma': [5, 2, 1.5, 1, 0.5, 0.1, 0.01, 0.001],
+    #     'subsample': [0.6, 0.8, 1.0],
+    #     'colsample_bytree': [0.6, 0.8, 1.0],
+    #     'n_estimators': [10, 50, 100, 300],
+    #     'max_depth': [3, 4, 5],
+    #     'booster': ['gbtree', 'gblinear', 'dart'],
+    # }
+]
 grid_search = GridSearchCV(
-    estimator=XGBClassifier(), param_grid=parameters,  # estimator = SVC()
+    estimator=SVC(), param_grid=parameters,  # estimator = XGBClassifier()
     scoring='accuracy', cv=10, n_jobs=-1, verbose=1)
 classifier = grid_search.fit(X_train, y_train).best_estimator_
 
@@ -109,8 +138,8 @@ y_pred = classifier.predict(X_test)
 results = list(zip(test.PassengerId, y_pred))
 
 # %%
-np.savetxt("data/test_pred_opt.csv", results, delimiter=",",
+np.savetxt("data/test_pred.csv", results, delimiter=",",
            header='PassengerId,Survived', fmt='%i')
 
 
-#%%
+# %%
