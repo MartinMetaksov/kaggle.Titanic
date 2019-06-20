@@ -3,143 +3,132 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
+import seaborn as sns
+import re as re
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import LabelEncoder
-from category_encoders.one_hot import OneHotEncoder
+from sklearn.preprocessing import OneHotEncoder
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import cross_val_score
 from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import confusion_matrix
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, log_loss
 from sklearn.svm import SVC
-from xgboost import XGBClassifier
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
+from xgboost import XGBClassifier
+from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier, GradientBoostingClassifier
+from sklearn.naive_bayes import GaussianNB
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
+from sklearn.linear_model import LogisticRegression
 
 
 # %%
-# read data and drop meaningless columns
-def preprocess_data(X):
-    y = None
-    if hasattr(X, 'Survived'):
-        y = X.Survived
-        X = X.drop('Survived', axis=1)
-    X = X.drop('PassengerId', axis=1)
-    X = X.drop('Name', axis=1)
-    X = X.drop('Ticket', axis=1)
-    # TODO: perhaps the Cabin information can
-    # be related and used for something...
-    X = X.drop('Cabin', axis=1)
+def process_data(data):
+    # Name
+    data['Title'] = list(map(lambda row: re.search(
+        ' ([A-Za-z]+)\.', row).group(1), data.Name))
+    data['Title'] = data['Title'].replace(['Lady', 'Countess', 'Capt', 'Col',
+                                           'Don', 'Dr', 'Major', 'Rev', 'Sir', 'Jonkheer', 'Dona'], 'Rare')
+    data['Title'] = data['Title'].replace('Mlle', 'Miss')
+    data['Title'] = data['Title'].replace('Ms', 'Miss')
+    data['Title'] = data['Title'].replace('Mme', 'Mrs')
+    data['Title'] = LabelEncoder().fit_transform(data.Title)
 
-    # fix NaN age values
-    imputer_age = SimpleImputer(strategy="median")  # TODO: try with mean
-    imputer_age = imputer_age.fit(X.Age.values.reshape(-1, 1))
-    X.Age = imputer_age.transform(X.Age.values.reshape(-1, 1))
+    # Sex
+    data['isMale'] = LabelEncoder().fit_transform(data.Sex)
 
-    # fix NaN fare values
-    imputer_fare = SimpleImputer(strategy="mean")  # TODO: try with median
-    imputer_fare = imputer_fare.fit(X.Fare.values.reshape(-1, 1))
-    X.Fare = imputer_fare.transform(X.Fare.values.reshape(-1, 1))
+    # Age
+    data['Age'] = SimpleImputer(strategy='mean').fit_transform(
+        data.Age.values.reshape(-1, 1))
+    data['CatAge'] = LabelEncoder().fit_transform(pd.cut(data.Age, 5))
 
-    # rename Sex to isMale - 0 for female, 1 for male
-    X = X.rename(columns={'Sex': 'isMale'})
-    le_sex = LabelEncoder()
-    le_sex = le_sex.fit(X.isMale)
-    X.isMale = le_sex.transform(X.isMale)
+    # SibSp + Parch
+    data['isAlone'] = list(
+        map(lambda row: 1 if row == 1 else 0, data.SibSp + data.Parch + 1))
 
-    # split Embarked into 2 categories
-    X.Embarked[X.Embarked.isnull()] = 'C'  # TODO: try with S or Q
-    le_embarked = LabelEncoder()
-    le_embarked = le_embarked.fit(X.Embarked)
-    X.Embarked = le_embarked.transform(X.Embarked)
-    ohe = OneHotEncoder()
-    ohe = ohe.fit(X.Embarked.values.reshape(-1, 1))
-    _ = ohe.transform(X.Embarked.values.reshape(-1, 1)).toarray()
-    X['EmbarkedInQueenstown'] = _[:, 1]
-    X['EmbarkedInSouthampton'] = _[:, 2]
-    X = X.drop('Embarked', axis=1)
+    # Fare
+    data['Fare'] = SimpleImputer(strategy='median').fit_transform(
+        data.Fare.values.reshape(-1, 1))
+    data['CatFare'] = LabelEncoder().fit_transform(pd.qcut(data.Fare, 4))
 
-    # feature scaling
-    sc = StandardScaler()
-    X = sc.fit_transform(X)
+    # Embarked
+    data['Embarked'] = SimpleImputer(
+        strategy='constant', fill_value='C').fit_transform(data.Embarked.values.reshape(-1, 1))
+    data['Embarked'] = LabelEncoder().fit_transform(data.Embarked)
 
-    # return
-    return (X, y)
+    # Cleanup unused columns
+    data = data.drop(['PassengerId', 'Name',
+                      'Sex', 'Age', 'SibSp',
+                      'Parch', 'Ticket',
+                      'Cabin', 'Fare'], axis=1)
+    return data
 
 
 # %%
 train = pd.read_csv('data/train.csv')
 test = pd.read_csv('data/test.csv')
-# X_train, y_train = preprocess_data(train)
-# X_test, _ = preprocess_data(test)
-
-# %%
-median_transformer = SimpleImputer(strategy='median')
-
-embarked_transformer = Pipeline(steps=[
-    ('imputer', SimpleImputer(strategy='constant', fill_value='C')),
-    ('onehot', OneHotEncoder(drop_invariant=True))
-])
-
-ohe = OneHotEncoder(drop_invariant=True)
-r = ohe.fit_transform(train.Sex)
-
-preprocessor = ColumnTransformer(transformers=[
-    ('Sex', OneHotEncoder(), ['Sex']),
-    ('Age', median_transformer, ['Age']),
-    ('Embarked', embarked_transformer, ['Embarked']),
-
-])
-
-preprocessing_result = preprocessor.fit_transform(train)
-preprocessing_result
-r
+y = train.Survived
+train = train.drop('Survived', axis=1)
+X = process_data(train)
+X_to_pred = process_data(test)
 
 
 # %%
-
-
-# %%
-# grid search
-parameters = [
-    {
-        'C': [1, 10, 100, 1000],
-        'kernel': ['rbf'],
-        'gamma': [0.5, 0.1, 0.01, 0.001]
-    },
-    # {
-    #     'min_child_weight': [1, 5, 10],
-    #     'gamma': [5, 2, 1.5, 1, 0.5, 0.1, 0.01, 0.001],
-    #     'subsample': [0.6, 0.8, 1.0],
-    #     'colsample_bytree': [0.6, 0.8, 1.0],
-    #     'n_estimators': [10, 50, 100, 300],
-    #     'max_depth': [3, 4, 5],
-    #     'booster': ['gbtree', 'gblinear', 'dart'],
-    # }
-]
-grid_search = GridSearchCV(
-    estimator=SVC(), param_grid=parameters,  # estimator = XGBClassifier()
-    scoring='accuracy', cv=10, n_jobs=-1, verbose=1)
-classifier = grid_search.fit(X_train, y_train).best_estimator_
+classifiers = [
+    XGBClassifier(),
+    KNeighborsClassifier(3),
+    SVC(probability=True),
+    DecisionTreeClassifier(),
+    RandomForestClassifier(),
+    AdaBoostClassifier(),
+    GradientBoostingClassifier(),
+    GaussianNB(),
+    LinearDiscriminantAnalysis(),
+    QuadraticDiscriminantAnalysis(),
+    LogisticRegression()]
 
 # %%
-# predict and compare results
-y_pred_train = classifier.predict(X_train)
-cm = confusion_matrix(y_train, y_pred_train)
-accuracy = accuracy_score(y_train, y_pred_train)
-print(cm)
-print('Correct: ' + str(cm[0, 0] + cm[1, 1]))
-print('Incorrect: ' + str(cm[0, 1] + cm[1, 0]))
-print('Accuracy: ' + str(accuracy))
+sss = StratifiedShuffleSplit(n_splits=10, test_size=0.1)
+accuracies = {}
+
+for i_train, i_test in sss.split(X, y):
+    X_train, X_test = X.values[i_train], X.values[i_test]
+    y_train, y_test = y.values[i_train], y.values[i_test]
+
+    for classifier in classifiers:
+        name = classifier.__class__.__name__
+        classifier.fit(X_train, y_train)
+        preds = classifier.predict(X_test)
+        acc = accuracy_score(y_test, preds)
+        if name in accuracies:
+            accuracies[name] += acc
+        else:
+            accuracies[name] = acc
+
+for i in accuracies:
+    accuracies[i] = accuracies[i] / 10.0
 
 # %%
-y_pred = classifier.predict(X_test)
+plt.xlabel('Accuracy')
+plt.ylabel('Classifier')
+plt.title('Classifier Accuracy')
+sns.barplot(x=list(accuracies.values()), y=list(accuracies.keys()), color="g")
+plt.savefig('img/classifiers.png')
+print('Best classifier: ' + str(max(accuracies, key=accuracies.get)))
+
+# %%
+classifier = SVC()
+classifier.fit(X, y)
+y_pred = classifier.predict(X_to_pred)
 results = list(zip(test.PassengerId, y_pred))
-
-# %%
-np.savetxt("data/test_pred.csv", results, delimiter=",",
-           header='PassengerId,Survived', fmt='%i')
+np.savetxt("data/preds-" + classifier.__class__.__name__ + ".csv", results, delimiter=",",
+           header='PassengerId,Survived', comments='', fmt='%i')
 
 
 # %%
